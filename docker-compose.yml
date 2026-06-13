@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: tx_postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: tx_pipeline
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data_v2:/var/lib/postgresql/data
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: tx_redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  api:
+    build: .
+    container_name: tx_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/tx_pipeline
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - shared_uploads:/app/uploads
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  worker:
+    build: .
+    container_name: tx_worker
+    command: celery -A app.core.celery_app worker --loglevel=info
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/tx_pipeline
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - shared_uploads:/app/uploads
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+volumes:
+  postgres_data_v2:
+  shared_uploads:

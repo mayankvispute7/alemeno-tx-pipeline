@@ -1,0 +1,13 @@
+# Environments
+.env
+.venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local Uploads
+uploads/
+*.csv
+!transactions.csv  # Keep the sample file so the reviewer can test it

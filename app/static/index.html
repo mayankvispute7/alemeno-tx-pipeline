@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alemeno | AI Transaction Pipeline</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; }
+    </style>
+</head>
+<body class="p-8 font-sans">
+
+    <div class="max-w-6xl mx-auto">
+        <header class="mb-8 flex justify-between items-end">
+            <div>
+                <h1 class="text-4xl font-bold text-cyan-400 tracking-tight">AIONYX Engine</h1>
+                <p class="text-slate-400 mt-2">Financial ETL & Anomaly Detection Pipeline</p>
+            </div>
+            <div class="text-right">
+                <p class="text-sm text-slate-500">Alemeno Assignment</p>
+            </div>
+        </header>
+
+        <div class="glass-panel p-6 mb-8 flex items-center justify-between">
+            <div>
+                <h2 class="text-xl font-semibold mb-1">1. Ingest Data</h2>
+                <p class="text-sm text-slate-400">Upload raw transactions CSV</p>
+            </div>
+            <div class="flex gap-4">
+                <input type="file" id="fileInput" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-cyan-900 file:text-cyan-300 hover:file:bg-cyan-800"/>
+                <button onclick="uploadFile()" class="bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-2 px-6 rounded-full transition-all">Process Data</button>
+            </div>
+        </div>
+
+        <div id="statusAlert" class="hidden glass-panel p-4 mb-8 text-center border-cyan-500 border-l-4">
+            <p id="statusText" class="text-cyan-300 animate-pulse font-semibold">Uploading...</p>
+        </div>
+
+        <div id="dashboardContainer" class="hidden">
+            <h2 class="text-2xl font-bold mb-4 border-b border-slate-700 pb-2">2. AI Analysis Results</h2>
+            
+            <div class="glass-panel p-6 mb-6 bg-gradient-to-r from-slate-800 to-slate-900 border-l-4 border-purple-500">
+                <div class="flex justify-between items-start mb-2">
+                    <h3 class="text-lg font-bold text-purple-400">Gemini 1.5 Risk Narrative</h3>
+                    <span id="riskBadge" class="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider"></span>
+                </div>
+                <p id="narrativeText" class="text-slate-300 italic"></p>
+            </div>
+
+            <div class="grid grid-cols-4 gap-4 mb-8">
+                <div class="glass-panel p-4 text-center">
+                    <p class="text-slate-400 text-sm mb-1">Total INR Spend</p>
+                    <p id="totalInr" class="text-2xl font-bold text-emerald-400">₹0</p>
+                </div>
+                <div class="glass-panel p-4 text-center">
+                    <p class="text-slate-400 text-sm mb-1">Total USD Spend</p>
+                    <p id="totalUsd" class="text-2xl font-bold text-emerald-400">$0</p>
+                </div>
+                <div class="glass-panel p-4 text-center">
+                    <p class="text-slate-400 text-sm mb-1">Anomalies Detected</p>
+                    <p id="anomalyCount" class="text-2xl font-bold text-red-400">0</p>
+                </div>
+                <div class="glass-panel p-4 text-center">
+                    <p class="text-slate-400 text-sm mb-1">Top Merchant</p>
+                    <p id="topMerchant" class="text-2xl font-bold text-blue-400">-</p>
+                </div>
+            </div>
+
+            <div class="glass-panel overflow-hidden">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-800 text-slate-300">
+                        <tr>
+                            <th class="p-4">ID</th>
+                            <th class="p-4">Date</th>
+                            <th class="p-4">Merchant</th>
+                            <th class="p-4">Amount</th>
+                            <th class="p-4">AI Category</th>
+                            <th class="p-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-700">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let pollingInterval;
+
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            if (!fileInput.files[0]) return alert("Please select a CSV file first!");
+
+            // UI Reset
+            document.getElementById('statusAlert').classList.remove('hidden');
+            document.getElementById('dashboardContainer').classList.add('hidden');
+            document.getElementById('statusText').innerText = "Uploading to Server...";
+
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            try {
+                const response = await fetch('/jobs/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if(data.job_id) {
+                    document.getElementById('statusText').innerText = "Data queued. AI Pipeline processing...";
+                    // Start checking status every 2 seconds
+                    pollingInterval = setInterval(() => checkStatus(data.job_id), 2000);
+                }
+            } catch (error) {
+                alert("Upload failed: " + error);
+            }
+        }
+
+        async function checkStatus(jobId) {
+            const res = await fetch(`/jobs/${jobId}/status`);
+            const data = await res.json();
+            
+            if (data.status === "completed") {
+                clearInterval(pollingInterval);
+                document.getElementById('statusText').innerText = "Pipeline Complete! Fetching Dashboard...";
+                document.getElementById('statusText').classList.remove('animate-pulse');
+                fetchResults(jobId);
+            } else if (data.status === "failed") {
+                clearInterval(pollingInterval);
+                document.getElementById('statusText').innerText = "Pipeline Failed. Check server logs.";
+                document.getElementById('statusText').classList.replace('text-cyan-300', 'text-red-500');
+            }
+        }
+
+        async function fetchResults(jobId) {
+            const res = await fetch(`/jobs/${jobId}/results`);
+            const data = await res.json();
+            
+            document.getElementById('statusAlert').classList.add('hidden');
+            document.getElementById('dashboardContainer').classList.remove('hidden');
+
+            // Populate Summary
+            const sum = data.summary;
+            document.getElementById('totalInr').innerText = '₹' + sum.total_spend_inr.toLocaleString();
+            document.getElementById('totalUsd').innerText = '$' + sum.total_spend_usd.toLocaleString();
+            document.getElementById('anomalyCount').innerText = sum.anomaly_count;
+            document.getElementById('topMerchant').innerText = sum.top_merchants[0] || 'N/A';
+            document.getElementById('narrativeText').innerText = sum.narrative;
+
+            // Risk Badge Styling
+            const badge = document.getElementById('riskBadge');
+            badge.innerText = sum.risk_level;
+            badge.className = `px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${sum.risk_level.toLowerCase() === 'high' ? 'bg-red-500/20 text-red-400' : sum.risk_level.toLowerCase() === 'medium' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}`;
+
+            // Populate Table
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            data.transactions.forEach(txn => {
+                const isAnomaly = txn.is_anomaly;
+                const rowStyle = isAnomaly ? 'bg-red-900/20 border-l-4 border-red-500' : 'hover:bg-slate-800/50';
+                const warningIcon = isAnomaly ? `<span title="${txn.anomaly_reason}">⚠️</span>` : '';
+                
+                tbody.innerHTML += `
+                    <tr class="${rowStyle} transition-colors">
+                        <td class="p-4 font-mono text-xs text-slate-400">${txn.id}</td>
+                        <td class="p-4">${txn.date.split('T')[0]}</td>
+                        <td class="p-4 font-semibold">${txn.merchant || '-'} ${warningIcon}</td>
+                        <td class="p-4">${txn.currency} ${txn.amount.toLocaleString()}</td>
+                        <td class="p-4"><span class="bg-cyan-900/50 text-cyan-300 px-2 py-1 rounded text-xs">${txn.category}</span></td>
+                        <td class="p-4">${txn.status}</td>
+                    </tr>
+                `;
+            });
+        }
+    </script>
+</body>
+</html>
